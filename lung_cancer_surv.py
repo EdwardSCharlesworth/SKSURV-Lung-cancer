@@ -76,7 +76,7 @@ def plot_performance(gcv):
     n_splits = gcv.cv.n_splits
     cv_scores = {"alpha": [], "test_score": [], "split": []}
     order = []
-    for i, params in enumerate(gcv.cv_results_["params"]):            
+    for i, params in enumerate(gcv.cv_results_["params"]):
         name = "%.5f" % params["alpha"]
         order.append(name)
         for j in range(n_splits):
@@ -93,50 +93,66 @@ def plot_performance(gcv):
 
 plot_performance(gcv)
 
+refit_gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
+                   n_jobs=4, iid=False, refit=True,
+                   cv=cv)
+
+refit_gcv = gcv.fit(X, y)
 
 
+from sksurv.svm import FastKernelSurvivalSVM
+from sksurv.kernels import clinical_kernel
 
+kernel_matrix = clinical_kernel(X)
+kssvm = FastKernelSurvivalSVM(optimizer="rbtree", kernel="precomputed", random_state=0)
 
+kgcv = GridSearchCV(kssvm, param_grid, score_survival_model,
+                    n_jobs=4, iid=False, refit=False,
+                    cv=cv)
 
+import warnings
+warnings.filterwarnings("ignore", category=UserWarning)
+kgcv = kgcv.fit(kernel_matrix, y)
 
+kgcv.best_score_, kgcv.best_params_
 
+plot_performance(kgcv)
 
+refit_kgcv = (kssvm, param_grid, score_survival_model,
+                    n_jobs=4, iid=False, refit=True,
+                    cv=cv)
+refit_kgcv = refit_kgcv.fit(kernel_matrix, y)
 
-
-
-
-
-
-def fit_and_score_features(X, y):
-    n_features = X.shape[1]
-    scores = np.empty(n_features)
-    m = CoxPHSurvivalAnalysis()
-    for j in range(n_features):
-        Xj = X[:, j:j+1]
-        m.fit(Xj, y)
-        scores[j] = m.score(Xj, y)
-    return scores
-
-scores = fit_and_score_features(X.values, y)
-all_predictors=pd.Series(scores, index=X.columns).sort_values(ascending=False)
-
-from sklearn.feature_selection import SelectKBest
-from sklearn.pipeline import Pipeline
-
-pipe = Pipeline([('encode', OneHotEncoder()),
-                 ('select', SelectKBest(fit_and_score_features, k=3)),
-                 ('model', CoxPHSurvivalAnalysis())])
-
-param_grid = {'select__k': np.arange(1, X.shape[1] + 1)}
-gcv = GridSearchCV(pipe, param_grid, return_train_score=True)
-gcv.fit(X, y)
-
-pd.DataFrame(gcv.cv_results_).sort_values(by='mean_test_score', ascending=False)
-pipe.set_params(**gcv.best_params_)
-pipe.fit(X, y)
-
-encoder, transformer, final_estimator = [s[1] for s in pipe.steps]
-best_predictors=pd.Series(final_estimator.coef_, index=encoder.encoded_columns_[transformer.get_support()])
+##def fit_and_score_features(X, y):
+##    n_features = X.shape[1]
+##    scores = np.empty(n_features)
+##    m = CoxPHSurvivalAnalysis()
+##    for j in range(n_features):
+##        Xj = X[:, j:j+1]
+##        m.fit(Xj, y)
+##        scores[j] = m.score(Xj, y)
+##    return scores
+##
+##scores = fit_and_score_features(X.values, y)
+##all_predictors=pd.Series(scores, index=X.columns).sort_values(ascending=False)
+##
+#from sklearn.feature_selection import SelectKBest
+#from sklearn.pipeline import Pipeline
+#
+#pipe = Pipeline([('encode', OneHotEncoder()),
+#                 ('select', SelectKBest(fit_and_score_features, k=3)),
+#                 ('model', CoxPHSurvivalAnalysis())])
+#
+#param_grid = {'select__k': np.arange(1, X.shape[1] + 1)}
+#gcv = GridSearchCV(pipe, param_grid, return_train_score=True)
+#gcv.fit(X, y)
+#
+#pd.DataFrame(gcv.cv_results_).sort_values(by='mean_test_score', ascending=False)
+#pipe.set_params(**gcv.best_params_)
+#pipe.fit(X, y)
+#
+#encoder, transformer, final_estimator = [s[1] for s in pipe.steps]
+#best_predictors=pd.Series(final_estimator.coef_, index=encoder.encoded_columns_[transformer.get_support()])
 
 pred_curves = estimator.predict_survival_function(X)
 for curve in pred_curves:
@@ -147,12 +163,10 @@ Xt = OneHotEncoder().fit_transform(X)
 cv = KFold(n_splits=5, shuffle=True, random_state=312188)
 coxnet = CoxnetSurvivalAnalysis(n_alphas=60,
                                 l1_ratio=0.2, alpha_min_ratio=0.01,
-                                verbose=True).fit(X_train, y_train)
+                                verbose=True).fit(X, y)
 gcv = GridSearchCV(coxnet,
                    {"alphas": [[v] for v in coxnet.alphas_]},
-                   cv=cv).fit(X_train, y_train)
+                   cv=cv).fit(X, y)
 
 scores = gcv.cv_results_['mean_test_score']
 scores_std = gcv.cv_results_['std_test_score']
-plt.figure().set_size_inches(8, 6)
-plt.semilogx(alphas, scores)
