@@ -64,7 +64,7 @@ def score_survival_model(model, X, y):
     result = concordance_index_censored(y['status'], y['time'], prediction)
     return result[0]
 warnings.filterwarnings("once")
-optimizers=("avltree","direct-count","PRSVM","rbtree","simple")
+optimizers=("rbtree")#"avltree","direct-count","PRSVM","rbtree","simple"
 for m in optimizers:
     estimator = FastSurvivalSVM(optimizer=m,random_state=1234)
     param_grid = {'alpha': 2. ** np.arange(-13, 10, 2), 'tol': (.1, 1e-10), 'max_iter': (2, 200)}
@@ -76,6 +76,7 @@ for m in optimizers:
     gcv = gcv.fit(X, y)
     print(m)
     print(gcv.best_score_, gcv.best_params_)
+
 
 def plot_performance(gcv):
     n_splits = gcv.cv.n_splits
