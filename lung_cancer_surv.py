@@ -18,7 +18,7 @@ from sksurv.svm import FastSurvivalSVM
 import seaborn as sns
 import warnings
 
-LUNG_LOC = r"/home/ed/Desktop/lung.csv"
+LUNG_LOC = r"/home/ed/Desktop/lung_cancer/lung.csv"
 LUNG_CLM = pd.read_csv(LUNG_LOC)
 LUNG_CLM.fillna(0, inplace=True)
 LUNG_CLM['status'] = LUNG_CLM[['status']] == 2
@@ -41,7 +41,7 @@ X = encode_categorical(X)
 n_censored = y.shape[0] - y["status"].sum()
 print("%.1f%% of records are censored" % (n_censored / y.shape[0] * 100))
 
-for sex in LUNG_CLM['ph.ecog'].unique():
+for sex in LUNG_CLM['sex'].unique():
     msk = LUNG_CLM['sex'] ==sex    
     plt.figure(figsize=(9, 6))
     val, bins, patches = plt.hist((y["time"][msk][y["status"][msk]],
@@ -58,24 +58,26 @@ for group in LUNG_CLM['ph.ecog'].unique():
     plt.step(time, surv_prob, where="post",
              label="Treatment = {}".format(group))
 #%%
+X_train, X_test, y_train, y_test = train_test_split(X,
+                                                   y,test_size=0.2,
+                                                   random_state=4)
 
 def score_survival_model(model, X, y):
     prediction = model.predict(X)
     result = concordance_index_censored(y['status'], y['time'], prediction)
     return result[0]
 warnings.filterwarnings("once")
-optimizers=("rbtree")#"avltree","direct-count","PRSVM","rbtree","simple"
-for m in optimizers:
-    estimator = FastSurvivalSVM(optimizer=m,random_state=1234)
-    param_grid = {'alpha': 2. ** np.arange(-13, 10, 2), 'tol': (.1, 1e-10), 'max_iter': (2, 200)}
-    cv = ShuffleSplit(n_splits=200, test_size=0.2, random_state=0)
-    gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
-                       n_jobs=4, iid=False, refit=False,
-                       cv=cv)
-    
-    gcv = gcv.fit(X, y)
-    print(m)
-    print(gcv.best_score_, gcv.best_params_)
+#optimizers=("rbtree""avltree","direct-count","PRSVM","rbtree","simple"
+
+estimator = FastSurvivalSVM(optimizer="rbtree",random_state=1234)
+param_grid = {'alpha': 2. ** np.arange(-13, 10, 2), 'tol': (1e+2, 1e-5), 'max_iter': (90, 100)}
+cv = ShuffleSplit(n_splits=200, test_size=0.2, random_state=0)
+gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
+                   n_jobs=4, iid=False, refit=False,
+                   cv=cv)
+
+gcv = gcv.fit(X, y)
+print(gcv.best_score_, gcv.best_params_)
 
 
 def plot_performance(gcv):
@@ -104,7 +106,7 @@ refit_gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
 
 refit_gcv = refit_gcv = refit_gcv.fit(X, y)
 gridsearch_rank = refit_gcv.predict(X)
-
+#%%
 from sksurv.svm import FastKernelSurvivalSVM
 from sksurv.kernels import clinical_kernel
 
@@ -151,4 +153,94 @@ cum_curv = estimator.predict_cumulative_hazard_function(X_test)
 for item in cum_curv:
     plt.step(item.x, item.y, where="post")
 
+#%%
+def score_survival_model(model, X, y):
+    prediction = model.predict(X)
+    result = concordance_index_censored(y['status'], y['time'], prediction)
+    return result[0]
+#%%
+from sksurv.ensemble import GradientBoostingSurvivalAnalysis, ComponentwiseGradientBoostingSurvivalAnalysis
+model3=ComponentwiseGradientBoostingSurvivalAnalysis(loss='coxph', 
+                                              learning_rate=0.2, 
+                                              n_estimators=1000, 
+                                              subsample=1.0, 
+                                              dropout_rate=0, 
+                                              random_state=123, 
+                                              verbose=1)
+
+model3.fit(X_train, y_train)
+model3.predict(X_test)
+model3.score(X_train, y_train)
+#%%
+LUNG_LOC = r"/home/ed/Desktop/lung_cancer/lung.csv"
+LUNG_CLM = pd.read_csv(LUNG_LOC)
+LUNG_CLM.fillna(0, inplace=True)
+LUNG_CLM['status'] = LUNG_CLM[['status']] == 2
+
+X = LUNG_CLM[['inst',
+              'age',
+              'sex',
+              'ph.ecog',
+              'ph.karno',
+              'pat.karno',
+              'meal.cal',
+              'wt.loss',
+              'status',
+              'time']]
+X['xg_time']=X.time
+msk = X['status'] == 0
+X.loc[msk,'xg_time']=X.time * -1
+
+y=X.xg_time
+X = LUNG_CLM[['inst',
+              'age',
+              'sex',
+              'ph.ecog',
+              'ph.karno',
+              'pat.karno',
+              'meal.cal',
+              'wt.loss']]
+
+X_train, X_test, y_train, y_test = train_test_split(X,
+                                                   y,test_size=0.3,
+                                                   random_state=4)
+
+
+import xgboost as xgb
+from xgboost import XGBClassifier
+model4=XGBClassifier(max_depth=30, 
+              learning_rate=0.1, 
+              n_estimators=100, 
+              verbosity=1, 
+              silent=None, 
+              objective='survival:cox', 
+              booster='gblinear', 
+              n_jobs=10, 
+              nthread=-1, 
+              gamma=0, 
+              min_child_weight=1,
+              max_delta_step=0, 
+              subsample=1, 
+              colsample_bytree=1, 
+              colsample_bylevel=1, 
+              colsample_bynode=1, 
+              reg_alpha=0,
+              reg_lambda=0, 
+              scale_pos_weight=1, 
+              base_score=100, 
+              random_state=100, 
+              seed=1234, 
+              missing=True)
+model4.fit(X_train, y_train, 
+           sample_weight=None,
+           eval_set=None,
+           eval_metric='auc',
+           early_stopping_rounds=None,
+           verbose=True,
+#          xgb_model=None,
+           sample_weight_eval_set=None)
+
+t=model4.predict(X_test)
+model4.score(X_train, y_train)
+#xgb.plot_importance(model4, importance_type='weight',max_num_features=10)
 

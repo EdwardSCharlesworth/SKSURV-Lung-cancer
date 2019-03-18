@@ -14,11 +14,13 @@ from sklearn.model_selection import train_test_split
 from sksurv.linear_model import CoxnetSurvivalAnalysis, CoxPHSurvivalAnalysis
 from sksurv.nonparametric import kaplan_meier_estimator
 from sksurv.metrics import concordance_index_censored
+from sklearn.metrics import average_precision_score, make_scorer, confusion_matrix
 from sksurv.svm import FastSurvivalSVM
+from sksurv.ensemble import GradientBoostingSurvivalAnalysis
 import seaborn as sns
 import warnings
 
-LUNG_LOC = r"/home/ed/Desktop/lung.csv"
+LUNG_LOC = r"/home/ed/Desktop/lung_cancer/lung.csv"
 LUNG_CLM = pd.read_csv(LUNG_LOC)
 LUNG_CLM.fillna(0, inplace=True)
 LUNG_CLM['status'] = LUNG_CLM[['status']] == 2
@@ -41,7 +43,7 @@ X = encode_categorical(X)
 n_censored = y.shape[0] - y["status"].sum()
 print("%.1f%% of records are censored" % (n_censored / y.shape[0] * 100))
 
-for sex in LUNG_CLM['ph.ecog'].unique():
+for sex in LUNG_CLM['sex'].unique():
     msk = LUNG_CLM['sex'] ==sex    
     plt.figure(figsize=(9, 6))
     val, bins, patches = plt.hist((y["time"][msk][y["status"][msk]],
@@ -59,23 +61,23 @@ for group in LUNG_CLM['ph.ecog'].unique():
              label="Treatment = {}".format(group))
 #%%
 
-def score_survival_model(model, X, y):
-    prediction = model.predict(X)
+def score_survival_model(model, x, y):
+    prediction = model.predict(x)
     result = concordance_index_censored(y['status'], y['time'], prediction)
     return result[0]
-warnings.filterwarnings("once")
-optimizers=("rbtree")#"avltree","direct-count","PRSVM","rbtree","simple"
-for m in optimizers:
-    estimator = FastSurvivalSVM(optimizer=m,random_state=1234)
-    param_grid = {'alpha': 2. ** np.arange(-13, 10, 2), 'tol': (.1, 1e-10), 'max_iter': (2, 200)}
-    cv = ShuffleSplit(n_splits=200, test_size=0.2, random_state=0)
-    gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
-                       n_jobs=4, iid=False, refit=False,
-                       cv=cv)
-    
-    gcv = gcv.fit(X, y)
-    print(m)
-    print(gcv.best_score_, gcv.best_params_)
+warnings.filterwarnings("ignore")
+#optimizers=("rbtree")#"avltree","direct-count","prsvm","rbtree","simple"
+
+estimator = FastSurvivalSVM(optimizer="rbtree",random_state=1234)
+param_grid = {'alpha': 2. ** np.arange(-6, 6, 2), 'tol': (.1, 1e-10), 'max_iter': (2, 400)}
+cv = ShuffleSplit(n_splits=200, test_size=0.25, random_state=0)
+gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
+                   n_jobs=4, iid=False, refit=False,
+                   cv=cv)
+
+gcv = gcv.fit(X, y)
+#print(m)
+print(gcv.best_score_, gcv.best_params_)
 
 
 def plot_performance(gcv):
@@ -151,4 +153,39 @@ cum_curv = estimator.predict_cumulative_hazard_function(X_test)
 for item in cum_curv:
     plt.step(item.x, item.y, where="post")
 
+#%%
+estimator = GradientBoostingSurvivalAnalysis(loss='coxph',criterion='friedman_mse',
+                                             min_impurity_split=None, 
+                                             min_impurity_decrease=0.0, 
+                                             random_state=None, max_features=None, 
+                                             max_leaf_nodes=None, presort='auto', 
+                                             subsample=1.0, dropout_rate=0.0, verbose=1 )
+param_grid= {'learning_rate':(.1,0.2,0.3,0.4),
+             'n_estimators':(100,200,300,400),
+             'min_samples_split':(2,3,4,5,6), 
+             'min_samples_leaf':(1,2,3,4,5),
+             'min_weight_fraction_leaf':(0.0,0.1,0.2,0.3,0.4),
+             'max_depth':(5,10,20,30,40)} 
+                               
+gcv = GridSearchCV(estimator, param_grid, scoring=score_survival_model,
+                   n_jobs=4, iid=False, refit=True,
+                   cv=cv)
+
+gcv = gcv.fit(X, y)
+#print(m)
+print(gcv.best_score_, gcv.best_params_)
+
+estimator.fit(X_train, y_train)
+estimator.score(X_test, y_test)
+
+
+pred_curves = estimator.predict_survival_function(X_test)
+for curve in pred_curves:
+    plt.step(curve.x, curve.y, where="post")
+    
+plt.clf()
+
+cum_curv = estimator.predict_cumulative_hazard_function(X_test)
+for item in cum_curv:
+    plt.step(item.x, item.y, where="post")
 
