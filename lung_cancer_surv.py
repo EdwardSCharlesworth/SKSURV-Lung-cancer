@@ -202,15 +202,15 @@ X = LUNG_CLM[['inst',
               'wt.loss']]
 
 X_train, X_test, y_train, y_test = train_test_split(X,
-                                                   y,test_size=0.3,
-                                                   random_state=4)
+                                                   y,test_size=0.2,
+                                                   random_state=1234)
 
 
 import xgboost as xgb
 from xgboost import XGBClassifier
 model4=XGBClassifier(max_depth=30, 
               learning_rate=0.1, 
-              n_estimators=100, 
+              n_estimators=1000, 
               verbosity=1, 
               silent=None, 
               objective='survival:cox', 
@@ -231,16 +231,17 @@ model4=XGBClassifier(max_depth=30,
               random_state=100, 
               seed=1234, 
               missing=True)
-model4.fit(X_train, y_train, 
+
+model4.fit(X_test, y_test, 
            sample_weight=None,
            eval_set=None,
-           eval_metric='auc',
+           eval_metric='rmse',
            early_stopping_rounds=None,
            verbose=True,
 #          xgb_model=None,
            sample_weight_eval_set=None)
 
-t=model4.predict(X_test)
+t=model4.predict(X_train)
 model4.score(X_train, y_train)
 #xgb.plot_importance(model4, importance_type='weight',max_num_features=10)
-
+#coeff=model4.coef_
